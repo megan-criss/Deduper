@@ -1,0 +1,111 @@
+Goals of deduper:
+    Find and gather duplicate PCR reads into a separate file while removing them from the original SAM file.
+
+Algorithm should include/make use of:
+    • Samtools sort
+    • Adjust for soft clipping
+    • Single-end reads
+    • Known UMIs
+    • Considerations:
+        • Millions of reads – avoid loading everything into memory!
+        • Be sure to utilize functions appropriately
+    • Appropriately commend code and include doc strings
+
+Algorith should address: 
+    • Same alignment position
+        • Strand (strand specific?) (in bitwise flag[column 2]
+        • Chromosome  ((in header column 3)
+        • Position (in header column 4)
+    • Soft Clipping
+    • Same Unique Molecular Index (UMI or “randomer”)
+    • Single-end vs Paired-end?
+
+
+Adjust for soft clipping not remove it on forward strand
+go chromosome by chromosome 
+set string equal to different stings then turn into library key
+del(library)
+
+
+before coding make sure to use samtools.sort to sort the SAM file by the read starting position
+Speparate the SAM file into reads by chromosome
+write a miniscript for this so that it is automatically done before trying to run rest of algorithm
+
+
+argparse arguments:
+-f, --file: required arg, absolute file path
+-p, --paired: optional arg, designates file is paired end (not single-end)
+-u, --umi: optional arg, designates file containing the list of UMIs (unset if randomers instead of UMIs)
+-h, --help: optional arg, prints a USEFUL help message (see argparse docs)
+-s, --sorted: required arg, will ask if you have run mini script that will sort the sam file by chromosome as opposed to positon
+
+
+Function real_umi:
+    ''' A function that is designed to check an UMI against a stored list of UMI's provided by the user to make sure its real!"
+        - take in header line from file by looping through  
+        - go to the 1st column and extract the UMI from the end: the UMI is in the 8th column if :'s are considered as /t's
+        - check UMI against library of 96 known UMIs
+            if UMI is in Library, return whole line, count +1, otherwise write line to removed read file and remove read from SAM file
+
+Adjust for soft clipping not remove it on forward strand
+Function soft_clip(cigar strand col 6)
+    " a function to check if the cigar string has the letter S to indicate soft clipping"
+    take in line of SAM file and isolate the 6th column
+        go through characters in 6th column one by one
+            if character = S then
+                set position string to position(column4) - value before S (? i think this would work, double check)
+            else set position variable to value in column 4 
+
+ex: if this is the read that is being checked:
+
+NS500451:154:HWKTMBGXX:1:11101:24260:1121:CTGTTCAC      0       2       76814284        36      60M11S     *       0      0                                                         
+TCCACCACAATCTTACCATCCTTCCTCCAGACCACATCGCGTTCTTTGTTCAACTCACAGCTCAAGTACAA  6AEEEEEEAEEAEEEEAAEEEEEEEEEAEEAEEAAEE<EEEEEEEEEAEEEEEEEAAEEAAAEAEEAEAE/                                  MD:Z:71  NH:i:1  HI:i:1  NM:i:0  SM:i:36 XQ:i:40 X2:i:0  XO:Z:UU
+
+Then because there is an S in the cigar string(60M11S), the whole read will be written to the removed reads file, however if the cigar string just said 71M, then the read would be passed through
+
+
+create empty library for information
+
+Create library of UMIs using file specified by user
+
+start UMI_counter
+Start of code - go through one chromosome at a time then delete library once sorted to save memory: do all of chromosome 1 then delete, all of chromosome 2 then delete, etc.
+(split SAM file so that it goes chromosome by chromosome, start with chromosome 1 then when that is finished wipe library and start with chromosome 2)
+    set chromosome variable to column 3
+    start counter to go through every line in SAM file starting at the first read in the chromosome 1
+        if the chromosome = the chromosome variable then continue down path
+        otherwise, delete library and reset the chromosome variable, then send back to top of code block - this might be wonky, check if this will work
+        create string to hold header information []
+            for each line in file:
+                store read in string to preserve information
+                call  soft_clip function to check for soft clipping
+                    this will return the set positon string(column 4)
+                call real_umi function to make sure UMI is real
+                #once you have determined that the UMI is real and there is no soft clipping occurring in the read:
+                    separate out the first column and pull out the UMI
+                        set umi string to UMI then ':' 
+                    set strand string with column 2 then ':'
+                    set chromosome string with column 3 then ':'
+                    set header information string to 'umi:strand:chromosome:position'
+                    take entire string of header information
+                        does this list exist in library?
+                            if not, then add string with header information to new library key and write read to saved reads file
+                            if it is then write the whole read (via the stored string with the original read above) to the removed reads file
+                read counter +1 go to next read in SAM file
+                Put counter to output how many 10,000  reads have been done to track progress
+
+
+go through removed reads file and print the first read that was removed
+
+
+example of information stored in library key:
+if this is the read that enters:
+
+NS500451:154:HWKTMBGXX:1:11101:17250:1435:AGCTACCA      0       2       76814762        36      71M     *       0      
+0TGTCAAAACGATGTCTTTGATTTCTTTCACGAATTTCAGTGGCACGGCCTTGAGTTGGTAAGTGAACGGAG 66EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE MD:Z:71 NH:i:1  HI:i:1  NM:i:0  SM:i:36 XQ:i:40 X2:i:0  XO:Z:UU
+
+then the information stored in the array would look like this, after adjusting for soft clipping and maintaining that the UMI is real:
+
+AGCTACCA:0:2:76814762
+
+This means that every single read would have its own identifier/ "barcode" that would identify its uniqueness, if the barcode of the read matches that of an already existing one, then it is a PCR duplicate
